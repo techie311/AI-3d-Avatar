@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VRM ↔ FBX Skeleton Diagnostic</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Loading Overlay -->
+  <div id="loading-overlay">
+    <div class="loader-content">
+      <div class="spinner"></div>
+      <p id="loading-text">Initializing...</p>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header id="app-header">
+    <div class="header-left">
+      <h1>🦴 Skeleton Diagnostic</h1>
+      <span class="subtitle">VRM ↔ FBX Animation Mapping</span>
+    </div>
+    <div class="header-right">
+      <button id="btn-play-anim" class="btn btn-primary" disabled>▶ Play Animation</button>
+      <select id="anim-select" class="select-anim" disabled>
+        <option value="">Select Animation...</option>
+      </select>
+      <div class="speed-control">
+        <label>Speed</label>
+        <input type="range" id="speed-slider" min="0" max="200" value="100" />
+        <span id="speed-value">1.0×</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div id="main-layout">
+    <!-- Left Panel: 3D Viewer -->
+    <div id="viewer-panel">
+      <canvas id="three-canvas"></canvas>
+      <div id="viewer-controls">
+        <button id="btn-toggle-skeleton" class="btn btn-small">🦴 Toggle Skeleton</button>
+        <button id="btn-reset-camera" class="btn btn-small">🎯 Reset Camera</button>
+        <button id="btn-toggle-wireframe" class="btn btn-small">◻ Wireframe</button>
+      </div>
+      <div id="viewer-info">
+        <span id="bone-hover-info">Hover a bone to inspect</span>
+      </div>
+    </div>
+
+    <!-- Right Panel: Diagnostic Info -->
+    <div id="info-panel">
+      <!-- Tabs -->
+      <div class="tab-bar">
+        <button class="tab active" data-tab="vrm-bones">VRM Bones</button>
+        <button class="tab" data-tab="fbx-bones">FBX Bones</button>
+        <button class="tab" data-tab="mapping">Mapping</button>
+        <button class="tab" data-tab="tuning">⚙ Tuning</button>
+        <button class="tab" data-tab="log">Log</button>
+      </div>
+
+      <!-- Tab Content -->
+      <div class="tab-content active" id="tab-vrm-bones">
+        <div class="panel-header">
+          <h3>VRM Skeleton</h3>
+          <span id="vrm-bone-count" class="badge">0 bones</span>
+        </div>
+        <div class="search-bar">
+          <input type="text" id="vrm-search" placeholder="Search bones..." />
+        </div>
+        <div id="vrm-bone-tree" class="bone-tree"></div>
+      </div>
+
+      <div class="tab-content" id="tab-fbx-bones">
+        <div class="panel-header">
+          <h3>FBX Skeleton</h3>
+          <span id="fbx-bone-count" class="badge">0 bones</span>
+        </div>
+        <div class="search-bar">
+          <input type="text" id="fbx-search" placeholder="Search bones..." />
+        </div>
+        <div id="fbx-bone-tree" class="bone-tree"></div>
+      </div>
+
+      <div class="tab-content" id="tab-mapping">
+        <div class="panel-header">
+          <h3>Bone Mapping Comparison</h3>
+          <div class="mapping-stats">
+            <span id="stat-matched" class="stat matched">0 matched</span>
+            <span id="stat-unmatched" class="stat unmatched">0 unmatched</span>
+            <span id="stat-extra" class="stat extra">0 extra</span>
+          </div>
+        </div>
+        <div id="mapping-table-container">
+          <table id="mapping-table">
+            <thead>
+              <tr>
+                <th>FBX Track / Bone</th>
+                <th>Status</th>
+                <th>VRM Bone</th>
+              </tr>
+            </thead>
+            <tbody id="mapping-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tuning Tab -->
+      <div class="tab-content" id="tab-tuning">
+        <div class="panel-header">
+          <h3>Fine-Tune Animation</h3>
+          <button id="btn-reset-tuning" class="btn btn-small">Reset All</button>
+        </div>
+        <div class="tuning-scroll">
+          <!-- Retarget Mode -->
+          <div class="tuning-section">
+            <h4>Retarget Mode</h4>
+            <div class="tuning-row">
+              <label>Mode</label>
+              <select id="retarget-mode">
+                <option value="raw_compensated">Rest-Pose Compensated (recommended)</option>
+                <option value="direct_raw">Direct Copy (raw bones)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Root Transform -->
+          <div class="tuning-section">
+            <h4>Root Transform</h4>
+            <div class="tuning-row">
+              <label>Hips Scale</label>
+              <input type="range" id="tune-hips-scale" min="0.001" max="0.05" step="0.001" value="0.01" />
+              <span class="tune-val" id="val-hips-scale">0.010</span>
+            </div>
+            <div class="tuning-row">
+              <label>Y Offset</label>
+              <input type="range" id="tune-y-offset" min="-1" max="1" step="0.01" value="0" />
+              <span class="tune-val" id="val-y-offset">0.00</span>
+            </div>
+            <div class="tuning-row">
+              <label>X Offset</label>
+              <input type="range" id="tune-x-offset" min="-1" max="1" step="0.01" value="0" />
+              <span class="tune-val" id="val-x-offset">0.00</span>
+            </div>
+            <div class="tuning-row">
+              <label>Z Offset</label>
+              <input type="range" id="tune-z-offset" min="-1" max="1" step="0.01" value="0" />
+              <span class="tune-val" id="val-z-offset">0.00</span>
+            </div>
+            <div class="tuning-row">
+              <label>Root Rotation Y°</label>
+              <input type="range" id="tune-rot-y" min="-180" max="180" step="1" value="0" />
+              <span class="tune-val" id="val-rot-y">0°</span>
+            </div>
+          </div>
+
+          <!-- Bone Group Weights -->
+          <div class="tuning-section">
+            <h4>Bone Group Weights</h4>
+            <div class="tuning-row">
+              <label>Spine / Torso</label>
+              <input type="range" class="bone-weight" data-group="spine" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="spine">100%</span>
+            </div>
+            <div class="tuning-row">
+              <label>Left Arm</label>
+              <input type="range" class="bone-weight" data-group="leftArm" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="leftArm">100%</span>
+            </div>
+            <div class="tuning-row">
+              <label>Right Arm</label>
+              <input type="range" class="bone-weight" data-group="rightArm" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="rightArm">100%</span>
+            </div>
+            <div class="tuning-row">
+              <label>Left Leg</label>
+              <input type="range" class="bone-weight" data-group="leftLeg" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="leftLeg">100%</span>
+            </div>
+            <div class="tuning-row">
+              <label>Right Leg</label>
+              <input type="range" class="bone-weight" data-group="rightLeg" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="rightLeg">100%</span>
+            </div>
+            <div class="tuning-row">
+              <label>Head / Neck</label>
+              <input type="range" class="bone-weight" data-group="head" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="head">100%</span>
+            </div>
+            <div class="tuning-row">
+              <label>Fingers</label>
+              <input type="range" class="bone-weight" data-group="fingers" min="0" max="200" value="100" />
+              <span class="tune-val" data-group-val="fingers">100%</span>
+            </div>
+          </div>
+
+          <!-- Export -->
+          <div class="tuning-section">
+            <h4>Save / Load Config</h4>
+            <div class="tuning-row-btns">
+              <button id="btn-export-config" class="btn btn-small">📥 Export JSON</button>
+              <button id="btn-import-config" class="btn btn-small">📤 Import JSON</button>
+              <input type="file" id="config-file-input" accept=".json" style="display:none" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-log">
+        <div class="panel-header">
+          <h3>Diagnostic Log</h3>
+          <button id="btn-clear-log" class="btn btn-small">Clear</button>
+        </div>
+        <div id="log-output" class="log-output"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Map for Three.js -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.3/lib/three-vrm.module.min.js"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

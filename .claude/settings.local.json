@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm list:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(node test-browser.js)",
+      "Bash(node test-browser2.js)",
+      "Bash(mkdir -p public)",
+      "Bash(node -e ':*)",
+      "Bash(node test-browser3.js)",
+      "Bash(node scripts/analyze-fbx.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(node scripts/test-animations.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:3000/fbx/Breathing%20Idle.fbx\")",
+      "Bash(curl -s \"http://localhost:3000/api/animations\")",
+      "Bash(node -e \"const pkg = require\\('./node_modules/@pixiv/three-vrm/package.json'\\); console.log\\(pkg.version\\);\")"
+    ]
+  }
+}

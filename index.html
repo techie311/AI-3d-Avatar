@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI-controlled 3D avatar with real-time expressions, lip-sync, and autonomous behavior" />
+  <title>AI 3D Avatar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- 3D Canvas -->
+  <canvas id="avatar-canvas"></canvas>
+
+  <!-- Loading overlay (shown during auto-load) -->
+  <div id="loading-overlay" class="overlay-panel">
+    <div class="loading-box">
+      <div class="loading-spinner"></div>
+      <p id="loading-text">Loading avatar...</p>
+    </div>
+  </div>
+
+  <!-- Settings button (top-left corner) -->
+  <button id="settings-btn" title="Settings">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+    </svg>
+  </button>
+
+  <!-- Settings panel (hidden by default) -->
+  <div id="settings-panel" class="hidden">
+    <div class="settings-header">
+      <span>⚙️ Settings</span>
+      <button id="settings-close" class="chat-toggle-btn" title="Close">✕</button>
+    </div>
+    <div class="settings-content">
+      <!-- Avatar model -->
+      <div class="settings-group">
+        <label class="settings-label">Avatar Model</label>
+        <div class="model-selector-wrapper">
+          <select id="model-select">
+            <option value="" disabled selected>Loading...</option>
+          </select>
+          <button id="model-load-btn" class="load-btn" disabled>Load</button>
+        </div>
+        <p class="settings-hint">Place .vrm files in <code>model VRM</code> folder</p>
+      </div>
+
+      <!-- Voice -->
+      <div class="settings-group">
+        <label class="settings-label">Voice</label>
+        <select id="voice-select">
+          <option value="en-US-AriaNeural">Aria (Female, Natural)</option>
+          <option value="en-US-JennyNeural">Jenny (Female)</option>
+          <option value="en-US-GuyNeural">Guy (Male)</option>
+          <option value="en-US-DavisNeural">Davis (Male)</option>
+          <option value="en-GB-SoniaNeural">Sonia (British Female)</option>
+          <option value="en-AU-NatashaNeural">Natasha (Australian Female)</option>
+        </select>
+      </div>
+
+      <!-- AI Server -->
+      <div class="settings-group">
+        <label class="settings-label">AI Server URL</label>
+        <input type="text" id="ai-server-url" value="http://localhost:8080" />
+      </div>
+
+      <!-- Animation Library -->
+      <div class="settings-group">
+        <label class="settings-label">Animation Library</label>
+        <input type="text" id="anim-search" placeholder="Search animations..." class="anim-search-input" />
+        <div id="anim-category-tabs" class="anim-category-tabs">
+          <button class="anim-cat-btn active" data-cat="all">All</button>
+          <button class="anim-cat-btn" data-cat="idle">Idle</button>
+          <button class="anim-cat-btn" data-cat="talking">Talk</button>
+          <button class="anim-cat-btn" data-cat="reaction">React</button>
+          <button class="anim-cat-btn" data-cat="emotion">Emotion</button>
+          <button class="anim-cat-btn" data-cat="gesture">Gesture</button>
+          <button class="anim-cat-btn" data-cat="walk">Walk</button>
+          <button class="anim-cat-btn" data-cat="action">Action</button>
+        </div>
+        <div id="anim-library-list" class="anim-library-list"></div>
+        <div class="anim-now-playing" id="anim-now-playing" style="display:none">
+          <span class="anim-playing-label">▶</span>
+          <span id="anim-playing-name"></span>
+          <button id="anim-stop-btn" class="anim-stop-btn">■ Stop</button>
+        </div>
+        <p class="settings-hint">Click to play · AI selects automatically during chat</p>
+      </div>
+
+      <!-- Expression debug toggle -->
+      <div class="settings-group">
+        <label class="settings-label">
+          <input type="checkbox" id="expr-debug-toggle" /> Show Expression Debug
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div class="status-item" id="status-connection">
+      <span class="status-dot disconnected"></span>
+      <span class="status-text">AI Disconnected</span>
+    </div>
+    <div class="status-item" id="status-mood">
+      <span class="mood-icon">😐</span>
+      <span class="status-text">Neutral</span>
+    </div>
+    <div class="status-item" id="status-animation">
+      <span class="status-text">Idle</span>
+    </div>
+  </div>
+
+  <!-- Chat panel -->
+  <div id="chat-panel">
+    <div class="chat-header">
+      <span class="chat-title">💬 Chat</span>
+      <button id="chat-toggle" class="chat-toggle-btn" title="Toggle chat">−</button>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-message system">
+        <div class="message-content">Loading avatar...</div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" />
+      <button id="chat-send" title="Send">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Expression debug panel (toggle in settings) -->
+  <div id="expression-panel" class="hidden">
+    <div class="panel-header">🎭 Expressions</div>
+    <div id="expression-controls"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
