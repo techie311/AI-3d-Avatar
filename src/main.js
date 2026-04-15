@@ -146,7 +146,7 @@ async function loadAvatar(source) {
     expressionCtrl = new ExpressionController(vrm);
     proceduralAnims = new ProceduralAnimations(vrm);
     animationCtrl = new AnimationController(vrm);
-    fbxLoader = new FBXAnimationLoader(vrm, animationCtrl);
+    fbxLoader = new FBXAnimationLoader(vrm, animationCtrl, proceduralAnims);
     fbxLoader.onAnimationEnd = () => updateAnimLibraryUI();
     lipSyncCtrl = new LipSyncController(expressionCtrl);
     orchestrator = new ResponseOrchestrator(expressionCtrl, animationCtrl, speechEngine, lipSyncCtrl, fbxLoader);
@@ -184,6 +184,7 @@ const settingsClose = document.getElementById('settings-close');
 const voiceSelect = document.getElementById('voice-select');
 const aiServerUrl = document.getElementById('ai-server-url');
 const exprDebugToggle = document.getElementById('expr-debug-toggle');
+const animDebugToggle = document.getElementById('anim-debug-toggle');
 
 // Fetch available models and auto-load the first one
 async function initModels() {
@@ -266,7 +267,33 @@ exprDebugToggle.addEventListener('change', () => {
   } else {
     exprPanel.classList.add('hidden');
   }
+  repositionDebugPanels();
 });
+
+// Animation testing toggle
+animDebugToggle.addEventListener('change', () => {
+  const animPanel = document.getElementById('animation-test-panel');
+  if (animDebugToggle.checked) {
+    animPanel.classList.remove('hidden');
+    initAnimLibrary();
+  } else {
+    animPanel.classList.add('hidden');
+  }
+  repositionDebugPanels();
+});
+
+// Position expression panel below animation panel when both are visible
+function repositionDebugPanels() {
+  const animPanel = document.getElementById('animation-test-panel');
+  const exprPanel = document.getElementById('expression-panel');
+
+  if (!animPanel.classList.contains('hidden') && !exprPanel.classList.contains('hidden')) {
+    // Stack expression panel below animation panel
+    exprPanel.style.top = (animPanel.offsetTop + animPanel.offsetHeight + 8) + 'px';
+  } else {
+    exprPanel.style.top = '60px';
+  }
+}
 
 // ====================================================
 // ANIMATION BUTTONS IN SETTINGS

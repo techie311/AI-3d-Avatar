@@ -1,6 +1,10 @@
 /**
  * FBXAnimationLoader — Loads Mixamo FBX animations, retargets to VRM, plays via AnimationMixer
  *
+ * Uses the official @pixiv/three-vrm world-space retargeting algorithm.
+ * The mixer targets the normalized bone root so vrm.update() properly
+ * converts normalized → raw bones each frame.
+ *
  * Usage:
  *   const loader = new FBXAnimationLoader(vrm, animationController);
  *   await loader.play('breathing_idle');   // plays by manifest key
@@ -16,13 +20,21 @@ export class FBXAnimationLoader {
   /**
    * @param {import('@pixiv/three-vrm').VRM} vrm
    * @param {import('./AnimationController.js').AnimationController} animCtrl
+   * @param {import('./ProceduralAnimations.js').ProceduralAnimations} [proceduralAnims]
    */
-  constructor(vrm, animCtrl) {
+  constructor(vrm, animCtrl, proceduralAnims) {
     this.vrm = vrm;
     this.animCtrl = animCtrl;
+    this.proceduralAnims = proceduralAnims || null;
 
     this._fbxLoader = new FBXLoader();
-    this._mixer = new THREE.AnimationMixer(vrm.scene);
+
+    // Find the normalized bone root for the mixer
+    // This is critical — the mixer must target the normalized skeleton
+    // so vrm.update() can convert normalized → raw bones properly
+    const normalizedRoot = this._findNormalizedRoot();
+    this._mixer = new THREE.AnimationMixer(normalizedRoot || vrm.scene);
+
     this._currentAction = null;
     this._clipCache = {};       // url → THREE.AnimationClip (retargeted)
     this._currentKey = null;
@@ -35,10 +47,27 @@ export class FBXAnimationLoader {
       this.isPlaying = false;
       this._currentAction = null;
       this._currentKey = null;
-      // Re-enable procedural controller
+      // Re-enable procedural controllers
       if (this.animCtrl) this.animCtrl.disabled = false;
+      if (this.proceduralAnims) this.proceduralAnims.setEnabled(true);
       if (this.onAnimationEnd) this.onAnimationEnd();
     });
+  }
+
+  /**
+   * Find the root of the normalized bone hierarchy.
+   * The mixer needs to target this root so track names resolve correctly.
+   */
+  _findNormalizedRoot() {
+    try {
+      const hips = this.vrm.humanoid.getNormalizedBoneNode('hips');
+      if (!hips) return null;
+      let root = hips;
+      while (root.parent) root = root.parent;
+      return root;
+    } catch (e) {
+      return null;
+    }
   }
 
   /**
@@ -70,8 +99,9 @@ export class FBXAnimationLoader {
       this._currentAction.fadeOut(fadeOut);
     }
 
-    // Disable procedural AnimationController while FBX plays
+    // Disable procedural controllers while FBX plays
     if (this.animCtrl) this.animCtrl.disabled = true;
+    if (this.proceduralAnims) this.proceduralAnims.setEnabled(false);
 
     // Create and play new action
     const action = this._mixer.clipAction(clip);
@@ -96,12 +126,14 @@ export class FBXAnimationLoader {
       this._currentAction.fadeOut(fadeOut);
       setTimeout(() => {
         if (this.animCtrl) this.animCtrl.disabled = false;
+        if (this.proceduralAnims) this.proceduralAnims.setEnabled(true);
         this._currentAction = null;
         this._currentKey = null;
         this.isPlaying = false;
       }, fadeOut * 1000);
     } else {
       if (this.animCtrl) this.animCtrl.disabled = false;
+      if (this.proceduralAnims) this.proceduralAnims.setEnabled(true);
       this.isPlaying = false;
     }
   }
@@ -121,27 +153,30 @@ export class FBXAnimationLoader {
     return new Promise((resolve) => {
       this._fbxLoader.load(
         url,
-        (fbx) => {
-          const clip = fbx.animations?.[0];
+        (fbxAsset) => {
+          const clip = fbxAsset.animations?.[0];
           if (!clip) {
             console.warn('[FBXAnimationLoader] No animation clip in:', url);
             resolve(null);
             return;
           }
 
-          // Detect FPS — normalize 60fps clips to play at standard speed
+          // Detect FPS for logging
           const fps = detectFPS(clip);
-          // Three.js handles 60fps clips fine — no time scaling needed
 
-          // Retarget Mixamo → VRM
-          const retargeted = retargetClip(clip, this.vrm, { fixTpose: true });
+          // Retarget using official world-space method
+          // Pass the full FBX asset so the retargeter can read rest-pose world quaternions
+          const retargeted = retargetClip(clip, fbxAsset, this.vrm);
           if (!retargeted) {
             console.warn('[FBXAnimationLoader] Retargeting failed (no matching bones) for:', url);
             resolve(null);
             return;
           }
 
-          console.log(`[FBXAnimationLoader] Loaded: ${url} (${fps}fps, ${retargeted.duration.toFixed(2)}s, ${retargeted.tracks.length} tracks)`);
+          console.log(
+            `[FBXAnimationLoader] Loaded: ${url} ` +
+            `(${fps}fps, ${retargeted.duration.toFixed(2)}s, ${retargeted.tracks.length} tracks)`
+          );
           resolve(retargeted);
         },
         undefined,

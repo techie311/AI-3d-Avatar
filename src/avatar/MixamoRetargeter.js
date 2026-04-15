@@ -1,196 +1,200 @@
 /**
- * MixamoRetargeter — Maps Mixamo FBX bone tracks → VRM normalized humanoid bones
+ * MixamoRetargeter — Official @pixiv/three-vrm world-space retargeting
  *
- * Supports both:
- *  - mixamorig: prefix  (most Mixamo downloads)
- *  - no prefix          (some Mixamo downloads)
- *  - Bip01 prefix       (older biped rigs)
+ * Algorithm (from three-vrm examples/humanoidAnimation):
+ *   result = parentWorldRestQuat × keyframeQuat × inv(boneWorldRestQuat)
  *
- * POSITION tracks: only hips is kept (root motion), scaled cm→m.
- * SCALE tracks: stripped — VRM doesn't use them.
- * QUATERNION tracks: remapped to VRM normalized bone node names.
+ * This converts Mixamo bone-local rotations into VRM normalized bone space,
+ * properly handling bone axis differences between the two skeletons.
  *
- * T-POSE FIX: if the clip starts with a T-pose frame (all rotations ~identity
- * for the first few frames), we trim those frames off by offsetting clip start.
+ * Position tracks (hips only) are auto-scaled using the hips height ratio.
  */
 
 import * as THREE from 'three';
 
 // ── Mixamo bone name → VRM humanoid bone name ────────────────────────────────
-const BONE_MAP_PREFIXED = {
-  'mixamorig:Hips':         'hips',
-  'mixamorig:Spine':        'spine',
-  'mixamorig:Spine1':       'chest',
-  'mixamorig:Spine2':       'upperChest',
-  'mixamorig:Neck':         'neck',
-  'mixamorig:Head':         'head',
-  'mixamorig:LeftShoulder': 'leftShoulder',
-  'mixamorig:LeftArm':      'leftUpperArm',
-  'mixamorig:LeftForeArm':  'leftLowerArm',
-  'mixamorig:LeftHand':     'leftHand',
-  'mixamorig:RightShoulder':'rightShoulder',
-  'mixamorig:RightArm':     'rightUpperArm',
-  'mixamorig:RightForeArm': 'rightLowerArm',
-  'mixamorig:RightHand':    'rightHand',
-  'mixamorig:LeftUpLeg':    'leftUpperLeg',
-  'mixamorig:LeftLeg':      'leftLowerLeg',
-  'mixamorig:LeftFoot':     'leftFoot',
-  'mixamorig:LeftToeBase':  'leftToes',
-  'mixamorig:RightUpLeg':   'rightUpperLeg',
-  'mixamorig:RightLeg':     'rightLowerLeg',
-  'mixamorig:RightFoot':    'rightFoot',
-  'mixamorig:RightToeBase': 'rightToes',
-  // Finger bones (optional — improves hand detail)
-  'mixamorig:LeftHandThumb1':  'leftThumbMetacarpal',
-  'mixamorig:LeftHandThumb2':  'leftThumbProximal',
-  'mixamorig:LeftHandThumb3':  'leftThumbDistal',
-  'mixamorig:LeftHandIndex1':  'leftIndexProximal',
-  'mixamorig:LeftHandIndex2':  'leftIndexIntermediate',
-  'mixamorig:LeftHandIndex3':  'leftIndexDistal',
-  'mixamorig:LeftHandMiddle1': 'leftMiddleProximal',
-  'mixamorig:LeftHandMiddle2': 'leftMiddleIntermediate',
-  'mixamorig:LeftHandMiddle3': 'leftMiddleDistal',
-  'mixamorig:LeftHandRing1':   'leftRingProximal',
-  'mixamorig:LeftHandRing2':   'leftRingIntermediate',
-  'mixamorig:LeftHandRing3':   'leftRingDistal',
-  'mixamorig:LeftHandPinky1':  'leftLittleProximal',
-  'mixamorig:LeftHandPinky2':  'leftLittleIntermediate',
-  'mixamorig:LeftHandPinky3':  'leftLittleDistal',
-  'mixamorig:RightHandThumb1': 'rightThumbMetacarpal',
-  'mixamorig:RightHandThumb2': 'rightThumbProximal',
-  'mixamorig:RightHandThumb3': 'rightThumbDistal',
-  'mixamorig:RightHandIndex1': 'rightIndexProximal',
-  'mixamorig:RightHandIndex2': 'rightIndexIntermediate',
-  'mixamorig:RightHandIndex3': 'rightIndexDistal',
-  'mixamorig:RightHandMiddle1':'rightMiddleProximal',
-  'mixamorig:RightHandMiddle2':'rightMiddleIntermediate',
-  'mixamorig:RightHandMiddle3':'rightMiddleDistal',
-  'mixamorig:RightHandRing1':  'rightRingProximal',
-  'mixamorig:RightHandRing2':  'rightRingIntermediate',
-  'mixamorig:RightHandRing3':  'rightRingDistal',
-  'mixamorig:RightHandPinky1': 'rightLittleProximal',
-  'mixamorig:RightHandPinky2': 'rightLittleIntermediate',
-  'mixamorig:RightHandPinky3': 'rightLittleDistal',
+// THREE.js FBXLoader strips the colon — "mixamorig:Hips" becomes "mixamorigHips"
+const mixamoVRMRigMap = {
+  mixamorigHips: 'hips',
+  mixamorigSpine: 'spine',
+  mixamorigSpine1: 'chest',
+  mixamorigSpine2: 'upperChest',
+  mixamorigNeck: 'neck',
+  mixamorigHead: 'head',
+  mixamorigLeftShoulder: 'leftShoulder',
+  mixamorigLeftArm: 'leftUpperArm',
+  mixamorigLeftForeArm: 'leftLowerArm',
+  mixamorigLeftHand: 'leftHand',
+  mixamorigLeftHandThumb1: 'leftThumbMetacarpal',
+  mixamorigLeftHandThumb2: 'leftThumbProximal',
+  mixamorigLeftHandThumb3: 'leftThumbDistal',
+  mixamorigLeftHandIndex1: 'leftIndexProximal',
+  mixamorigLeftHandIndex2: 'leftIndexIntermediate',
+  mixamorigLeftHandIndex3: 'leftIndexDistal',
+  mixamorigLeftHandMiddle1: 'leftMiddleProximal',
+  mixamorigLeftHandMiddle2: 'leftMiddleIntermediate',
+  mixamorigLeftHandMiddle3: 'leftMiddleDistal',
+  mixamorigLeftHandRing1: 'leftRingProximal',
+  mixamorigLeftHandRing2: 'leftRingIntermediate',
+  mixamorigLeftHandRing3: 'leftRingDistal',
+  mixamorigLeftHandPinky1: 'leftLittleProximal',
+  mixamorigLeftHandPinky2: 'leftLittleIntermediate',
+  mixamorigLeftHandPinky3: 'leftLittleDistal',
+  mixamorigRightShoulder: 'rightShoulder',
+  mixamorigRightArm: 'rightUpperArm',
+  mixamorigRightForeArm: 'rightLowerArm',
+  mixamorigRightHand: 'rightHand',
+  mixamorigRightHandPinky1: 'rightLittleProximal',
+  mixamorigRightHandPinky2: 'rightLittleIntermediate',
+  mixamorigRightHandPinky3: 'rightLittleDistal',
+  mixamorigRightHandRing1: 'rightRingProximal',
+  mixamorigRightHandRing2: 'rightRingIntermediate',
+  mixamorigRightHandRing3: 'rightRingDistal',
+  mixamorigRightHandMiddle1: 'rightMiddleProximal',
+  mixamorigRightHandMiddle2: 'rightMiddleIntermediate',
+  mixamorigRightHandMiddle3: 'rightMiddleDistal',
+  mixamorigRightHandIndex1: 'rightIndexProximal',
+  mixamorigRightHandIndex2: 'rightIndexIntermediate',
+  mixamorigRightHandIndex3: 'rightIndexDistal',
+  mixamorigRightHandThumb1: 'rightThumbMetacarpal',
+  mixamorigRightHandThumb2: 'rightThumbProximal',
+  mixamorigRightHandThumb3: 'rightThumbDistal',
+  mixamorigLeftUpLeg: 'leftUpperLeg',
+  mixamorigLeftLeg: 'leftLowerLeg',
+  mixamorigLeftFoot: 'leftFoot',
+  mixamorigLeftToeBase: 'leftToes',
+  mixamorigRightUpLeg: 'rightUpperLeg',
+  mixamorigRightLeg: 'rightLowerLeg',
+  mixamorigRightFoot: 'rightFoot',
+  mixamorigRightToeBase: 'rightToes',
 };
 
-// Build no-prefix version by stripping 'mixamorig:'
-const BONE_MAP_NO_PREFIX = {};
-for (const [k, v] of Object.entries(BONE_MAP_PREFIXED)) {
-  BONE_MAP_NO_PREFIX[k.replace('mixamorig:', '')] = v;
-}
-
-// THREE.js FBXLoader strips the colon — "mixamorig:Hips" becomes "mixamorigHips"
-// Build that lookup too
-const BONE_MAP_MERGED = {};
-for (const [k, v] of Object.entries(BONE_MAP_PREFIXED)) {
-  BONE_MAP_MERGED[k.replace('mixamorig:', 'mixamorig')] = v;
-}
-
-// Combined lookup — all three forms
-const BONE_MAP = { ...BONE_MAP_NO_PREFIX, ...BONE_MAP_MERGED, ...BONE_MAP_PREFIXED };
-
 /**
- * Retarget a Mixamo AnimationClip so it drives VRM normalized humanoid bones.
+ * Retarget a Mixamo FBX animation to VRM using the official three-vrm method.
  *
- * @param {THREE.AnimationClip} clip  — original clip from FBXLoader
+ * @param {THREE.AnimationClip} clip — original clip from FBXLoader
+ * @param {THREE.Group} fbxAsset — the full FBX scene (needed for rest-pose world quats)
  * @param {import('@pixiv/three-vrm').VRM} vrm
- * @param {object} [opts]
- * @param {boolean} [opts.keepRootMotion=false]  — include hips position track
- * @param {boolean} [opts.fixTpose=true]         — strip T-pose frames at start
  * @returns {THREE.AnimationClip | null}
  */
-export function retargetClip(clip, vrm, { keepRootMotion = false, fixTpose = true } = {}) {
-  if (!clip || !vrm?.humanoid) return null;
+export function retargetClip(clip, fbxAsset, vrm) {
+  if (!clip || !vrm?.humanoid || !fbxAsset) return null;
 
-  // ── Detect T-pose start ───────────────────────────────────────────────────
-  let tposeEndTime = 0;
-  if (fixTpose) {
-    const hipsQuat = clip.tracks.find(t =>
-      (t.name.toLowerCase().includes('hips') && t.name.endsWith('.quaternion'))
-    );
-    if (hipsQuat && hipsQuat.times.length > 1) {
-      // Check first frames for identity quaternion (w≈1, xyz≈0)
-      for (let i = 0; i < hipsQuat.times.length; i++) {
-        const base = i * 4;
-        const x = hipsQuat.values[base];
-        const y = hipsQuat.values[base + 1];
-        const z = hipsQuat.values[base + 2];
-        const w = hipsQuat.values[base + 3];
-        const isIdentity = Math.abs(w - 1) < 0.05 && Math.abs(x) < 0.05 &&
-                           Math.abs(y) < 0.05 && Math.abs(z) < 0.05;
-        if (isIdentity) {
-          tposeEndTime = hipsQuat.times[i];
-        } else {
-          break; // first non-identity frame marks end of T-pose
-        }
+  const tracks = [];
+  const restRotationInverse = new THREE.Quaternion();
+  const parentRestWorldRotation = new THREE.Quaternion();
+  const _quatA = new THREE.Quaternion();
+  const _vec3 = new THREE.Vector3();
+
+  // ── Compute hips height ratio for position scaling ──────────────────────
+  const mixamoHips = fbxAsset.getObjectByName('mixamorigHips');
+  const motionHipsHeight = mixamoHips ? mixamoHips.position.y : 100;
+
+  let vrmHipsHeight;
+  try {
+    vrmHipsHeight = vrm.humanoid.normalizedRestPose?.hips?.position?.[1];
+  } catch (e) { /* ignore */ }
+
+  if (!vrmHipsHeight) {
+    const normalizedHips = vrm.humanoid.getNormalizedBoneNode('hips');
+    if (normalizedHips) {
+      const vrmHipsY = normalizedHips.getWorldPosition(_vec3).y;
+      const vrmRootY = vrm.scene.getWorldPosition(new THREE.Vector3()).y;
+      vrmHipsHeight = Math.abs(vrmHipsY - vrmRootY);
+    }
+  }
+
+  if (!vrmHipsHeight || vrmHipsHeight === 0) vrmHipsHeight = 1.0;
+
+  const hipsPositionScale = vrmHipsHeight / motionHipsHeight;
+
+  // Detect VRM version for axis handling
+  const isVRM0 = vrm.meta?.metaVersion === '0';
+
+  let matched = 0;
+  let skipped = 0;
+
+  // ── Process each track ──────────────────────────────────────────────────
+  clip.tracks.forEach((track) => {
+    const trackSplitted = track.name.split('.');
+    const mixamoRigName = trackSplitted[0];
+    const vrmBoneName = mixamoVRMRigMap[mixamoRigName];
+    const vrmNodeName = vrm.humanoid?.getNormalizedBoneNode(vrmBoneName)?.name;
+    const mixamoRigNode = fbxAsset.getObjectByName(mixamoRigName);
+
+    if (vrmNodeName == null || !mixamoRigNode) {
+      skipped++;
+      return;
+    }
+
+    const propertyName = trackSplitted[1];
+
+    // ── Get rest-pose world quaternions ─────────────────────────────────
+    mixamoRigNode.getWorldQuaternion(restRotationInverse).invert();
+    mixamoRigNode.parent.getWorldQuaternion(parentRestWorldRotation);
+
+    if (track instanceof THREE.QuaternionKeyframeTrack) {
+      // ════════════════════════════════════════════════════════════════
+      //  THE KEY FORMULA (official @pixiv/three-vrm):
+      //    result = parentWorldRest × keyframe × inv(boneWorldRest)
+      // ════════════════════════════════════════════════════════════════
+      const newValues = new Float32Array(track.values.length);
+
+      for (let i = 0; i < track.values.length; i += 4) {
+        _quatA.set(
+          track.values[i],
+          track.values[i + 1],
+          track.values[i + 2],
+          track.values[i + 3]
+        );
+
+        // parentWorldRest × keyframe × inv(boneWorldRest)
+        _quatA.premultiply(parentRestWorldRotation).multiply(restRotationInverse);
+
+        newValues[i] = _quatA.x;
+        newValues[i + 1] = _quatA.y;
+        newValues[i + 2] = _quatA.z;
+        newValues[i + 3] = _quatA.w;
       }
-      // Only trim if T-pose is less than 20% of clip (avoid stripping real animations)
-      if (tposeEndTime > clip.duration * 0.2) tposeEndTime = 0;
-    }
-  }
 
-  // ── Build retargeted tracks ───────────────────────────────────────────────
-  const newTracks = [];
+      // VRM 0.x needs axis flip, VRM 1.x does not
+      const finalValues = isVRM0
+        ? Array.from(newValues).map((v, i) => (i % 2 === 0 ? -v : v))
+        : Array.from(newValues);
 
-  for (const track of clip.tracks) {
-    // Parse "BoneName.property"
-    const dot = track.name.lastIndexOf('.');
-    if (dot === -1) continue;
-    const boneName = track.name.substring(0, dot);
-    const property = track.name.substring(dot + 1);
-
-    // Strip scale tracks — VRM doesn't use them
-    if (property === 'scale') continue;
-
-    // Map bone name to VRM humanoid name
-    const vrmBoneName = BONE_MAP[boneName];
-    if (!vrmBoneName) continue;
-
-    // Get VRM normalized bone node
-    const node = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
-    if (!node) continue;
-
-    // Position tracks: only hips, scale cm→m
-    if (property === 'position') {
-      if (!keepRootMotion || vrmBoneName !== 'hips') continue;
-      const scaledTrack = new THREE.VectorKeyframeTrack(
-        `${node.name}.position`,
-        Array.from(track.times),
-        Array.from(track.values).map(v => v * 0.01), // cm → m
+      tracks.push(
+        new THREE.QuaternionKeyframeTrack(
+          `${vrmNodeName}.${propertyName}`,
+          track.times,
+          finalValues
+        )
       );
-      _trimTrack(scaledTrack, tposeEndTime);
-      newTracks.push(scaledTrack);
-      continue;
-    }
+      matched++;
 
-    // Quaternion tracks: clone and remap name
-    if (property === 'quaternion') {
-      const newTrack = new THREE.QuaternionKeyframeTrack(
-        `${node.name}.quaternion`,
-        Array.from(track.times),
-        Array.from(track.values),
+    } else if (track instanceof THREE.VectorKeyframeTrack) {
+      // Hips position — scale from Mixamo space to VRM space
+      const value = Array.from(track.values).map((v, i) => {
+        return (isVRM0 && i % 3 !== 1 ? -v : v) * hipsPositionScale;
+      });
+
+      tracks.push(
+        new THREE.VectorKeyframeTrack(
+          `${vrmNodeName}.${propertyName}`,
+          track.times,
+          value
+        )
       );
-      _trimTrack(newTrack, tposeEndTime);
-      newTracks.push(newTrack);
+      matched++;
     }
-  }
+  });
 
-  if (newTracks.length === 0) return null;
+  console.log(
+    `[MixamoRetargeter] Retarget: ${matched} mapped, ${skipped} skipped ` +
+    `(hipsScale=${hipsPositionScale.toFixed(6)}, VRM${isVRM0 ? '0' : '1'})`
+  );
 
-  const duration = clip.duration - tposeEndTime;
-  return new THREE.AnimationClip(clip.name || 'animation', duration, newTracks);
-}
-
-/** Trim times/values to start from `startTime` */
-function _trimTrack(track, startTime) {
-  if (startTime <= 0) return;
-  const stride = track.getValueSize();
-  let startIdx = 0;
-  for (let i = 0; i < track.times.length; i++) {
-    if (track.times[i] >= startTime) { startIdx = i; break; }
-  }
-  track.times = track.times.slice(startIdx).map(t => t - startTime);
-  track.values = track.values.slice(startIdx * stride);
+  if (tracks.length === 0) return null;
+  return new THREE.AnimationClip('vrmAnimation', clip.duration, tracks);
 }
 
 /**
@@ -200,8 +204,9 @@ function _trimTrack(track, startTime) {
 export function detectFPS(clip) {
   const track = clip.tracks.find(t => t.name.endsWith('.quaternion'));
   if (!track || track.times.length < 2) return 30;
-  const avgDelta = (track.times[track.times.length - 1] - track.times[0])
-    / (track.times.length - 1);
+  const avgDelta =
+    (track.times[track.times.length - 1] - track.times[0]) /
+    (track.times.length - 1);
   const fps = Math.round(1 / avgDelta);
   if (fps >= 55) return 60;
   if (fps >= 25) return 30;

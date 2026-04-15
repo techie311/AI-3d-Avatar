@@ -68,27 +68,11 @@
         <input type="text" id="ai-server-url" value="http://localhost:8080" />
       </div>
 
-      <!-- Animation Library -->
+      <!-- Animation Testing toggle -->
       <div class="settings-group">
-        <label class="settings-label">Animation Library</label>
-        <input type="text" id="anim-search" placeholder="Search animations..." class="anim-search-input" />
-        <div id="anim-category-tabs" class="anim-category-tabs">
-          <button class="anim-cat-btn active" data-cat="all">All</button>
-          <button class="anim-cat-btn" data-cat="idle">Idle</button>
-          <button class="anim-cat-btn" data-cat="talking">Talk</button>
-          <button class="anim-cat-btn" data-cat="reaction">React</button>
-          <button class="anim-cat-btn" data-cat="emotion">Emotion</button>
-          <button class="anim-cat-btn" data-cat="gesture">Gesture</button>
-          <button class="anim-cat-btn" data-cat="walk">Walk</button>
-          <button class="anim-cat-btn" data-cat="action">Action</button>
-        </div>
-        <div id="anim-library-list" class="anim-library-list"></div>
-        <div class="anim-now-playing" id="anim-now-playing" style="display:none">
-          <span class="anim-playing-label">▶</span>
-          <span id="anim-playing-name"></span>
-          <button id="anim-stop-btn" class="anim-stop-btn">■ Stop</button>
-        </div>
-        <p class="settings-hint">Click to play · AI selects automatically during chat</p>
+        <label class="settings-label">
+          <input type="checkbox" id="anim-debug-toggle" /> Show Animation Testing
+        </label>
       </div>
 
       <!-- Expression debug toggle -->
@@ -140,6 +124,28 @@
   <div id="expression-panel" class="hidden">
     <div class="panel-header">🎭 Expressions</div>
     <div id="expression-controls"></div>
+  </div>
+
+  <!-- Animation testing panel (toggle in settings) -->
+  <div id="animation-test-panel" class="hidden">
+    <div class="panel-header">🎬 Animation Testing</div>
+    <input type="text" id="anim-search" placeholder="Search animations..." class="anim-search-input" />
+    <div id="anim-category-tabs" class="anim-category-tabs">
+      <button class="anim-cat-btn active" data-cat="all">All</button>
+      <button class="anim-cat-btn" data-cat="idle">Idle</button>
+      <button class="anim-cat-btn" data-cat="talking">Talk</button>
+      <button class="anim-cat-btn" data-cat="reaction">React</button>
+      <button class="anim-cat-btn" data-cat="emotion">Emotion</button>
+      <button class="anim-cat-btn" data-cat="gesture">Gesture</button>
+      <button class="anim-cat-btn" data-cat="walk">Walk</button>
+      <button class="anim-cat-btn" data-cat="action">Action</button>
+    </div>
+    <div id="anim-library-list" class="anim-library-list"></div>
+    <div class="anim-now-playing" id="anim-now-playing" style="display:none">
+      <span class="anim-playing-label">▶</span>
+      <span id="anim-playing-name"></span>
+      <button id="anim-stop-btn" class="anim-stop-btn">■ Stop</button>
+    </div>
   </div>
 
   <script type="module" src="/src/main.js"></script>
